@@ -1,0 +1,14 @@
+{
+  "name": "wifi-cctv-signaling",
+  "version": "1.0.0",
+  "description": "WebSocket signaling server for WiFi CCTV",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/server.test.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
