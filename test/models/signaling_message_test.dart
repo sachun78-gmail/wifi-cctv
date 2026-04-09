@@ -130,7 +130,7 @@ void main() {
 
   group('SignalingMessage 라운드트립 (toJson → fromJson)', () {
     test('offer', () {
-      final original = OfferMessage(
+      const original = OfferMessage(
         roomId: '123456',
         sdp: {'type': 'offer', 'sdp': 'v=0...'},
       );
@@ -140,7 +140,7 @@ void main() {
     });
 
     test('answer', () {
-      final original = AnswerMessage(
+      const original = AnswerMessage(
         roomId: '654321',
         sdp: {'type': 'answer', 'sdp': 'v=0...'},
       );
@@ -150,7 +150,7 @@ void main() {
     });
 
     test('candidate', () {
-      final original = CandidateMessage(
+      const original = CandidateMessage(
         roomId: '111111',
         candidate: {
           'candidate': 'candidate:...',
@@ -165,7 +165,7 @@ void main() {
     });
 
     test('join_room', () {
-      final original = const JoinRoomMessage(roomId: '999999');
+      const original = JoinRoomMessage(roomId: '999999');
       final restored =
           SignalingMessage.fromJson(original.toJson()) as JoinRoomMessage;
       expect(restored.roomId, original.roomId);

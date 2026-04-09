@@ -3,7 +3,7 @@ import 'dart:convert';
 
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-import '../models/signaling_message.dart';
+import 'package:wifi_cctv/models/signaling_message.dart';
 
 class SignalingService {
   WebSocketChannel? _channel;
@@ -23,7 +23,7 @@ class SignalingService {
         try {
           final json = jsonDecode(data as String) as Map<String, dynamic>;
           _messageController.add(SignalingMessage.fromJson(json));
-        } catch (e) {
+        } on FormatException catch (e) {
           _messageController.addError(e);
         }
       },

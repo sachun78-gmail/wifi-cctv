@@ -3,5 +3,20 @@
     "allow": [
       "Bash(cmd.exe:*)"
     ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath' | grep -qE '\\.dart$' && flutter analyze --no-fatal-infos 2>/dev/null || true",
+            "timeout": 30,
+            "statusMessage": "Running flutter analyze..."
+          }
+        ]
+      }
+    ]
   }
 }

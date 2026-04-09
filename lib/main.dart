@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import 'views/home_view.dart';
-import 'views/camera_view.dart';
-import 'views/viewer_view.dart';
+import 'package:wifi_cctv/views/camera_view.dart';
+import 'package:wifi_cctv/views/home_view.dart';
+import 'package:wifi_cctv/views/viewer_view.dart';
 
 final _router = GoRouter(
   routes: [

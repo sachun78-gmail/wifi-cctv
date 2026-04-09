@@ -33,9 +33,7 @@ class WebRTCService {
       }
     };
 
-    _peerConnection!.onConnectionState = (state) {
-      _onConnectionState.add(state);
-    };
+    _peerConnection!.onConnectionState = _onConnectionState.add;
 
     _peerConnection!.onTrack = (event) {
       if (event.streams.isNotEmpty) {
@@ -84,8 +82,10 @@ class WebRTCService {
   }
 
   Future<void> dispose() async {
-    for (final track in _localStream?.getTracks() ?? []) {
-      track.stop();
+    if (_localStream != null) {
+      for (final track in _localStream!.getTracks()) {
+        await track.stop();
+      }
     }
     await _localStream?.dispose();
     await _peerConnection?.close();
