@@ -41,7 +41,7 @@
 ---
 
 ## Phase 3: WebRTC 서비스 구현
-- **상태**: 🔄 진행중 (2026-04-07)
+- **상태**: ✅ 완료 (2026-04-10)
 - **목표**: WebRTC PeerConnection 생성, 미디어 스트림 관리
 - **작업 목록**:
   - [x] WebRTCService 구현 (`lib/services/webrtc_service.dart`)
@@ -52,10 +52,12 @@
   - [x] SignalingService 구현 (`lib/services/signaling_service.dart`)
     - WebSocket 연결 관리
     - 메시지 송수신 (JSON 직렬화/역직렬화)
+    - channelFactory 주입으로 테스트 가능하게 리팩토링
   - [x] 시그널링 메시지 모델 정의 (`lib/models/signaling_message.dart`) — Dart 3 sealed class (codegen 불필요)
   - [x] Room 모델 정의 (`lib/models/room.dart`)
   - [x] 상수 정의 (`lib/utils/constants.dart`) — `AppConstants.signalingUrl(host)`
-  - [ ] 테스트 작성
+  - [x] 테스트 작성 — 24개 통과 (SignalingMessage 16개 + SignalingService 8개)
+    - WebRTCService: flutter_webrtc 네이티브 바인딩 필요 → Phase 7 통합 테스트로 분류
 
 ---
 

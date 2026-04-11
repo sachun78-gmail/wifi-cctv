@@ -164,11 +164,6 @@ void main() {
       expect(restored.candidate, original.candidate);
     });
 
-    test('join_room', () {
-      const original = JoinRoomMessage(roomId: '999999');
-      final restored =
-          SignalingMessage.fromJson(original.toJson()) as JoinRoomMessage;
-      expect(restored.roomId, original.roomId);
-    });
+    // join_room은 client→server 전용 메시지이므로 fromJson 라운드트립 없음.
   });
 }

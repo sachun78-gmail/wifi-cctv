@@ -6,6 +6,10 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:wifi_cctv/models/signaling_message.dart';
 
 class SignalingService {
+  SignalingService({WebSocketChannel Function(Uri)? channelFactory})
+      : _channelFactory = channelFactory ?? WebSocketChannel.connect;
+
+  final WebSocketChannel Function(Uri) _channelFactory;
   WebSocketChannel? _channel;
   final _messageController = StreamController<SignalingMessage>.broadcast();
 
@@ -15,7 +19,7 @@ class SignalingService {
 
   /// [url] 예: 'ws://192.168.0.100:9090'
   Future<void> connect(String url) async {
-    _channel = WebSocketChannel.connect(Uri.parse(url));
+    _channel = _channelFactory(Uri.parse(url));
     await _channel!.ready;
 
     _channel!.stream.listen(
