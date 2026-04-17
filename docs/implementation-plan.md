@@ -62,19 +62,28 @@
 ---
 
 ## Phase 4: 카메라 모드 구현
-- **상태**: 미시작
+- **상태**: ✅ 완료 (2026-04-15)
 - **목표**: 카메라 폰에서 영상 캡처 → WebRTC로 스트리밍
 - **작업 목록**:
-  - [ ] CameraViewModel 구현 (Riverpod)
-    - 연결 상태 관리 (대기, 연결중, 스트리밍)
-    - 방 생성 로직
-    - WebRTC Offer 생성 및 전송
-  - [ ] CameraView 구현
-    - 로컬 카메라 미리보기 (RTCVideoRenderer)
-    - 방 ID 표시
-    - 연결 상태 표시
-  - [ ] 카메라 권한 처리
-  - [ ] 테스트 작성
+  - [x] CameraViewModel 구현 (`lib/viewmodels/camera_viewmodel.dart`)
+    - `CameraConnectionState` 열거형 (idle/connecting/waitingForViewer/streaming/error)
+    - `CameraState` 불변 상태 클래스 + copyWith 패턴
+    - `StateNotifierProvider.autoDispose`로 Provider 등록
+    - 방 생성 → 뷰어 대기 → Offer 생성/전송 → Answer 수신 → ICE 교환 흐름
+    - 모든 Stream 구독 cleanup (메모리 누수 방지)
+  - [x] CameraView 구현 (`lib/views/camera_view.dart`)
+    - `ConsumerStatefulWidget` (RTCVideoRenderer 생명주기 관리)
+    - 로컬 카메라 미리보기 (RTCVideoView + RTCVideoRenderer)
+    - 방 ID 오버레이 표시 (뷰어 대기 중 크게 표시)
+    - 연결 상태 배지 (_StatusBadge)
+    - 서버 IP 입력 + 시작/중지 버튼
+  - [x] 카메라 권한 처리 — Phase 1에서 AndroidManifest.xml 설정 완료,
+        flutter_webrtc가 getUserMedia() 호출 시 런타임 권한 자동 요청
+  - [x] 테스트 작성 (`test/viewmodels/camera_viewmodel_test.dart`) — 23개 통과
+    - CameraState: 5개 (초기값, copyWith 패턴)
+    - CameraViewModel: 18개 (시그널링 흐름, WebRTC 상태, ICE, stopCamera)
+    - Fake 패턴: _FakeWebRTCService(Fake implements), _FakeSignalingService(Fake implements)
+    - autoDispose 주의: container.listen()으로 Provider 유지 (학습 포인트)
 
 ---
 
