@@ -88,31 +88,51 @@
 ---
 
 ## Phase 5: 뷰어 모드 구현
-- **상태**: 미시작
+- **상태**: ✅ 완료 (2026-04-17)
 - **목표**: 뷰어 폰에서 WebRTC로 영상 수신 및 표시
+- **설계 결정**:
+  - UI는 Phase 4 CameraView 패턴과 동일하게 구성 (하단 컨트롤 패널 + 영상 영역)
+  - 시그널링 메시지는 기존 모델(`JoinRoomMessage`, `RoomJoinedMessage`, `OfferMessage`, `AnswerMessage`, `CandidateMessage`, `PeerDisconnectedMessage`, `RoomErrorMessage`) 재사용 — 신규 정의 불필요
 - **작업 목록**:
-  - [ ] ViewerViewModel 구현 (Riverpod)
-    - 방 참여 로직
-    - WebRTC Answer 생성 및 전송
-    - 수신 영상 스트림 관리
-  - [ ] ViewerView 구현
-    - 방 ID 입력 UI
-    - 수신 영상 표시 (RTCVideoRenderer)
-    - 연결 상태 표시
-  - [ ] 테스트 작성
+  - [x] ViewerViewModel 구현 (`lib/viewmodels/viewer_viewmodel.dart`)
+    - `ViewerConnectionState` 열거형 (idle/connecting/waitingForOffer/streaming/error)
+    - `ViewerState` 불변 상태 클래스 + copyWith 패턴 (roomId, connectionState, errorMessage)
+    - `StateNotifierProvider.autoDispose`로 Provider 등록 (Phase 4 대칭)
+    - 방 참여 흐름: `joinRoom(host, roomId)` → `JoinRoomMessage` 전송 → `RoomJoinedMessage` 수신 → `OfferMessage` 수신 → `setRemoteDescription` → Answer 생성/전송 → ICE 교환 → remote stream 수신
+    - 모든 Stream 구독 cleanup (메모리 누수 방지)
+  - [x] ViewerView 구현 (`lib/views/viewer_view.dart`) — Phase 4 CameraView와 동일 패턴
+    - `ConsumerStatefulWidget` (RTCVideoRenderer 생명주기 관리)
+    - 상단: 원격 영상 영역 (RTCVideoView, `mirror: false`) + 상태 배지 오버레이
+    - 하단 컨트롤 패널:
+      - 에러 메시지 영역
+      - 시작 전: 서버 IP TextField + 방 ID TextField (6자리 숫자)
+      - 시작 후: 방 ID/상태 텍스트 표시
+      - 참여/중지 버튼 (연결 중에는 비활성 + 스피너)
+    - `_serverHostController` 기본값 `'192.168.0.'` (CameraView와 동일)
+    - `_roomIdController` 6자리 숫자 입력
+  - [x] 테스트 작성 (`test/viewmodels/viewer_viewmodel_test.dart`) — 24개 통과
+    - ViewerState: 5개 (초기값, copyWith 패턴)
+    - ViewerViewModel: 19개 (join 흐름, Offer→Answer, ICE, PeerDisconnected, error, stopViewer, 재시작)
+    - Fake 패턴: `_FakeWebRTCService`(createAnswer 추가), `_FakeSignalingService` 재활용
+    - autoDispose 방지: `container.listen()`으로 Provider 유지 (Phase 4 동일 패턴)
 
 ---
 
 ## Phase 6: 홈 화면 및 라우팅
-- **상태**: 미시작
+- **상태**: ✅ 완료 (2026-04-17)
 - **목표**: 모드 선택 화면 + 화면 전환
 - **작업 목록**:
-  - [ ] HomeView 구현 (카메라/뷰어 모드 선택)
-  - [ ] go_router 라우팅 설정
-    - / → HomeView
-    - /camera → CameraView
-    - /viewer → ViewerView
-  - [ ] 테스트 작성
+  - [x] HomeView 구현 (카메라/뷰어 모드 선택)
+    - 다크 테마, 모드 선택 카드(_ModeCard), 사용 순서 힌트(_HintRow)
+    - SingleChildScrollView로 소형 폰/가로 모드 오버플로우 대응
+    - StatelessWidget 사용 이유, go_router context.go(), SafeArea, InkWell 주석 추가
+  - [x] go_router 라우팅 설정 — main.dart에 이미 구현됨 (Phase 1)
+    - / → HomeView, /camera → CameraView, /viewer → ViewerView
+    - main.dart에 GoRouter, ProviderScope, MaterialApp.router 학습 주석 추가
+  - [x] 테스트 작성 (`test/views/home_view_test.dart`) — 7개 통과
+    - UI 렌더링 5개 (타이틀, 카드 제목, 아이콘, 힌트)
+    - 네비게이션 2개 (카메라/뷰어 카드 탭 → 경로 이동 검증)
+    - 스텁 GoRouter로 네이티브 의존성 없이 화면 전환 테스트
 
 ---
 
