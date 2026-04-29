@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
+import 'package:wifi_cctv/models/connection_error.dart';
 import 'package:wifi_cctv/models/signaling_message.dart';
 import 'package:wifi_cctv/services/signaling_service.dart';
 import 'package:wifi_cctv/services/webrtc_service.dart';
@@ -16,8 +17,8 @@ import 'package:wifi_cctv/viewmodels/viewer_viewmodel.dart';
 // 직접 사용할 수 없다. 대신 Fake 클래스를 만들어 네이티브 호출 없이
 // 동일한 인터페이스를 흉내 낸다.
 //
-// Fake (package:test): noSuchMethod를 UnimplementedError로 오버라이드한다.
-// 명시적으로 override하지 않은 메서드를 호출하면 즉시 실패 → 구현 누락을 빠르게 발견할 수 있다.
+// Fake (package:test): noSuchMethod를 throw로 오버라이드하여,
+// 명시적으로 override하지 않은 메서드 호출 시 UnimplementedError를 발생시킨다.
 // ══════════════════════════════════════════════════════════════════════════════
 
 /// WebRTCService를 대체하는 테스트용 Fake.
@@ -30,12 +31,18 @@ class _FakeWebRTCService extends Fake implements WebRTCService {
   final _connectionStateCtrl =
       StreamController<RTCPeerConnectionState>.broadcast();
   final _remoteStreamCtrl = StreamController<MediaStream>.broadcast();
+  // Phase 7 추가: ICE 연결 상태 스트림 — failed 이벤트로 restartIce() 검증에 사용
+  final _iceConnectionStateCtrl =
+      StreamController<RTCIceConnectionState>.broadcast();
 
   // 테스트에서 호출 여부를 검증하기 위한 기록용 변수
   var initializeCalled = false;
   RTCSessionDescription? lastSetRemoteDescription;
   var createAnswerCalled = false;
   final List<RTCIceCandidate> addedCandidates = [];
+  // Phase 7 추가: 호출 여부 검증용 카운터
+  var restartIceCalled = false;
+  var resetPeerConnectionCalled = 0; // 횟수로 검증 (재연결 등)
 
   // ── WebRTCService 인터페이스 구현 ────────────────────────────────────────
 
@@ -48,6 +55,11 @@ class _FakeWebRTCService extends Fake implements WebRTCService {
 
   @override
   Stream<MediaStream> get onRemoteStream => _remoteStreamCtrl.stream;
+
+  // Phase 7 추가: ICE 연결 상태 스트림
+  @override
+  Stream<RTCIceConnectionState> get onIceConnectionState =>
+      _iceConnectionStateCtrl.stream;
 
   @override
   Future<void> initialize() async {
@@ -72,11 +84,26 @@ class _FakeWebRTCService extends Fake implements WebRTCService {
     addedCandidates.add(candidate);
   }
 
+  // Phase 7 추가: ICE 재시작 — restartIceCalled로 호출 여부 검증
+  @override
+  Future<void> restartIce() async {
+    restartIceCalled = true;
+  }
+
+  // Phase 7 추가: PeerConnection만 재초기화 (StreamController 유지)
+  @override
+  Future<void> resetPeerConnection() async {
+    resetPeerConnectionCalled++;
+    // 재초기화 후 initialize()가 다시 호출될 준비 상태로 초기화
+    initializeCalled = false;
+  }
+
   @override
   Future<void> dispose() async {
     await _iceCandidateCtrl.close();
     await _connectionStateCtrl.close();
     await _remoteStreamCtrl.close();
+    await _iceConnectionStateCtrl.close();
   }
 
   // ── 테스트 헬퍼 메서드 ───────────────────────────────────────────────────
@@ -90,6 +117,11 @@ class _FakeWebRTCService extends Fake implements WebRTCService {
   void emitConnectionState(RTCPeerConnectionState state) {
     _connectionStateCtrl.add(state);
   }
+
+  // Phase 7 추가: ICE 연결 상태 이벤트 주입
+  void emitIceConnectionState(RTCIceConnectionState state) {
+    _iceConnectionStateCtrl.add(state);
+  }
 }
 
 /// SignalingService를 대체하는 테스트용 Fake.
@@ -99,19 +131,34 @@ class _FakeWebRTCService extends Fake implements WebRTCService {
 /// [pushMessage]로 서버에서 온 것처럼 메시지를 ViewModel에 주입한다.
 class _FakeSignalingService extends Fake implements SignalingService {
   final _messageCtrl = StreamController<SignalingMessage>.broadcast();
+  // Phase 7 추가: onClosed 스트림 — 서버 연결 종료 시뮬레이션용
+  final _closedCtrl = StreamController<void>.broadcast();
 
   // ViewModel이 send()로 보낸 메시지 목록 — 테스트에서 검증용
   final List<SignalingMessage> sentMessages = [];
 
+  // Phase 7 추가: true로 설정하면 connect()가 TimeoutException을 던진다
+  var simulateTimeout = false;
+
+  bool _isClosed = false; // 이중 dispose 방지
+
   @override
   Stream<SignalingMessage> get messages => _messageCtrl.stream;
+
+  // Phase 7 추가: onClosed 스트림 노출
+  @override
+  Stream<void> get onClosed => _closedCtrl.stream;
 
   @override
   bool get isConnected => true;
 
+  // timeout 파라미터 추가 — Phase 7에서 SignalingService에 추가된 named parameter
   @override
-  Future<void> connect(String url) async {
-    // 즉시 연결 성공으로 처리
+  Future<void> connect(
+    String url, {
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    if (simulateTimeout) throw TimeoutException('Simulated timeout', timeout);
   }
 
   @override
@@ -124,7 +171,12 @@ class _FakeSignalingService extends Fake implements SignalingService {
 
   @override
   void dispose() {
-    _messageCtrl.close();
+    // _isClosed 가드: _cleanup()이 여러 경로에서 dispose를 호출할 수 있어 이중 close 방지
+    if (!_isClosed) {
+      _isClosed = true;
+      _messageCtrl.close();
+      _closedCtrl.close();
+    }
   }
 
   // ── 테스트 헬퍼 메서드 ───────────────────────────────────────────────────
@@ -132,6 +184,11 @@ class _FakeSignalingService extends Fake implements SignalingService {
   /// 서버에서 온 것처럼 메시지를 ViewModel에 주입
   void pushMessage(SignalingMessage message) {
     _messageCtrl.add(message);
+  }
+
+  // Phase 7 추가: 서버 연결 종료 시뮬레이션
+  void simulateServerClose() {
+    _closedCtrl.add(null);
   }
 }
 
@@ -214,7 +271,9 @@ void main() {
       const state = ViewerState();
       expect(state.connectionState, ViewerConnectionState.idle);
       expect(state.roomId, isNull);
+      // errorMessage는 error getter에서 파생 — error가 null이면 null
       expect(state.errorMessage, isNull);
+      expect(state.error, isNull);
     });
 
     test('copyWith — connectionState만 변경', () {
@@ -224,7 +283,7 @@ void main() {
       );
       expect(updated.connectionState, ViewerConnectionState.connecting);
       expect(updated.roomId, isNull); // 나머지는 유지
-      expect(updated.errorMessage, isNull);
+      expect(updated.error, isNull);
     });
 
     test('copyWith — roomId만 변경', () {
@@ -236,10 +295,14 @@ void main() {
       expect(updated.roomId, '654321');
     });
 
-    test('copyWith — errorMessage만 변경', () {
+    // Phase 7: errorMessage → error(ConnectionError)로 변경
+    // copyWith에 error: ConnectionError? 파라미터 추가
+    test('copyWith — error만 변경', () {
       const state = ViewerState();
-      final updated = state.copyWith(errorMessage: '연결 실패');
-      expect(updated.errorMessage, '연결 실패');
+      final updated = state.copyWith(error: const ServerClosed());
+      expect(updated.error, isA<ServerClosed>());
+      // errorMessage getter가 ServerClosed를 한국어 문자열로 변환
+      expect(updated.errorMessage, isNotNull);
       expect(updated.connectionState, ViewerConnectionState.idle); // 유지
     });
 
@@ -251,6 +314,28 @@ void main() {
       final updated = state.copyWith();
       expect(updated.connectionState, state.connectionState);
       expect(updated.roomId, state.roomId);
+    });
+
+    // Phase 7: errorMessage getter — sealed class switch expression 검증
+    test('errorMessage getter — ConnectionError 타입별 한국어 문자열 반환', () {
+      expect(
+        const ViewerState(error: ConnectionTimeout()).errorMessage,
+        contains('시간'),
+      );
+      expect(
+        const ViewerState(error: RoomNotFound()).errorMessage,
+        contains('방'),
+      );
+      // NegotiationTimeout: 뷰어 전용 에러 — 카메라 응답 대기 초과
+      expect(
+        const ViewerState(error: NegotiationTimeout()).errorMessage,
+        contains('카메라'),
+      );
+      expect(
+        const ViewerState(error: UnknownConnectionError('raw error'))
+            .errorMessage,
+        contains('raw error'),
+      );
     });
   });
 
@@ -290,10 +375,11 @@ void main() {
 
     // ── 초기 상태 ─────────────────────────────────────────────────────────────
 
-    test('초기 상태 — idle, roomId/errorMessage는 null', () {
+    test('초기 상태 — idle, roomId/error는 null', () {
       final state = container.read(viewerViewModelProvider);
       expect(state.connectionState, ViewerConnectionState.idle);
       expect(state.roomId, isNull);
+      expect(state.error, isNull);
       expect(state.errorMessage, isNull);
     });
 
@@ -325,6 +411,16 @@ void main() {
         fakeSignaling.sentMessages.whereType<JoinRoomMessage>(),
         hasLength(1),
       );
+    });
+
+    // Phase 7: 시그널링 연결 타임아웃
+    test('joinRoom — TimeoutException → error: ConnectionTimeout', () async {
+      fakeSignaling.simulateTimeout = true;
+      await viewModel.joinRoom('192.168.0.1', '123456');
+
+      final state = container.read(viewerViewModelProvider);
+      expect(state.connectionState, ViewerConnectionState.error);
+      expect(state.error, isA<ConnectionTimeout>());
     });
 
     // ── 시그널링 메시지 처리 ──────────────────────────────────────────────────
@@ -408,7 +504,8 @@ void main() {
       expect(fakeWebRTC.addedCandidates.first.sdpMid, '0');
     });
 
-    test('PeerDisconnectedMessage 수신 — idle 상태, 에러 메시지 설정', () async {
+    // Phase 7: PeerDisconnectedMessage → PeerDisconnected 에러 타입
+    test('PeerDisconnectedMessage 수신 — idle 상태, error: PeerDisconnected', () async {
       await setupRoomJoined(viewModel, fakeSignaling);
 
       fakeSignaling.pushMessage(const PeerDisconnectedMessage());
@@ -417,10 +514,13 @@ void main() {
       final state = container.read(viewerViewModelProvider);
       // 카메라와 달리 뷰어는 idle로 복귀 (카메라가 사라졌으므로 재입력 필요)
       expect(state.connectionState, ViewerConnectionState.idle);
+      expect(state.error, isA<PeerDisconnected>());
+      // errorMessage getter도 한국어 문자열을 반환해야 한다
       expect(state.errorMessage, isNotNull);
     });
 
-    test('RoomErrorMessage 수신 — error 상태, errorMessage 설정', () async {
+    // Phase 7: RoomErrorMessage → ConnectionError 타입으로 변환
+    test('RoomErrorMessage(존재하지 않는 방) 수신 — error: RoomNotFound', () async {
       await viewModel.joinRoom('192.168.0.1', '000000');
       fakeSignaling.pushMessage(
         const RoomErrorMessage(message: '존재하지 않는 방입니다.'),
@@ -429,7 +529,21 @@ void main() {
 
       final state = container.read(viewerViewModelProvider);
       expect(state.connectionState, ViewerConnectionState.error);
-      expect(state.errorMessage, '존재하지 않는 방입니다.');
+      // 서버 메시지 '존재하지 않는 방입니다.'가 RoomNotFound 타입으로 매핑됐는지 확인
+      expect(state.error, isA<RoomNotFound>());
+    });
+
+    test('RoomErrorMessage(이미 뷰어 연결) 수신 — error: RoomFull', () async {
+      await viewModel.joinRoom('192.168.0.1', '123456');
+      fakeSignaling.pushMessage(
+        const RoomErrorMessage(message: '이미 뷰어가 연결된 방입니다.'),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        container.read(viewerViewModelProvider).error,
+        isA<RoomFull>(),
+      );
     });
 
     // ── WebRTC 연결 상태 변화 ─────────────────────────────────────────────────
@@ -448,7 +562,7 @@ void main() {
       );
     });
 
-    test('WebRTC disconnected — idle 상태로 복귀, 에러 메시지 설정', () async {
+    test('WebRTC disconnected — idle 상태로 복귀, error: ServerClosed', () async {
       await setupOfferReceived(viewModel, fakeSignaling);
       fakeWebRTC.emitConnectionState(
         RTCPeerConnectionState.RTCPeerConnectionStateConnected,
@@ -462,7 +576,8 @@ void main() {
 
       final state = container.read(viewerViewModelProvider);
       expect(state.connectionState, ViewerConnectionState.idle);
-      expect(state.errorMessage, isNotNull);
+      // 뷰어의 WebRTC 연결 끊김은 ServerClosed 에러로 처리
+      expect(state.error, isA<ServerClosed>());
     });
 
     test('WebRTC failed — idle 상태로 복귀', () async {
@@ -477,6 +592,18 @@ void main() {
         container.read(viewerViewModelProvider).connectionState,
         ViewerConnectionState.idle,
       );
+    });
+
+    // Phase 7: ICE failed → restartIce() 호출
+    test('ICE failed — restartIce() 호출', () async {
+      await setupRoomJoined(viewModel, fakeSignaling);
+
+      fakeWebRTC.emitIceConnectionState(
+        RTCIceConnectionState.RTCIceConnectionStateFailed,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(fakeWebRTC.restartIceCalled, isTrue);
     });
 
     // ── ICE Candidate 전송 ────────────────────────────────────────────────────
@@ -506,6 +633,7 @@ void main() {
       final state = container.read(viewerViewModelProvider);
       expect(state.connectionState, ViewerConnectionState.idle);
       expect(state.roomId, isNull);
+      expect(state.error, isNull);
       expect(state.errorMessage, isNull);
     });
 
@@ -532,6 +660,21 @@ void main() {
       // error 상태에서도 다시 joinRoom 호출 가능
       await viewModel.joinRoom('192.168.0.1', '111111');
 
+      expect(
+        container.read(viewerViewModelProvider).connectionState,
+        ViewerConnectionState.connecting,
+      );
+    });
+
+    // Phase 7: 시그널링 서버 연결 종료 → 재연결 스케줄링
+    test('시그널링 서버 연결 종료 — connecting 상태로 전환 (재연결 대기)', () async {
+      await setupRoomJoined(viewModel, fakeSignaling);
+
+      // simulateServerClose(): signalingService.onClosed 이벤트 발행
+      fakeSignaling.simulateServerClose();
+      await Future<void>.delayed(Duration.zero);
+
+      // 재연결 시도 중: connecting 상태여야 한다
       expect(
         container.read(viewerViewModelProvider).connectionState,
         ViewerConnectionState.connecting,

@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(cmd.exe:*)"
+      "Bash(cmd.exe:*)",
+      "Bash(flutter test *)"
     ]
   },
   "hooks": {

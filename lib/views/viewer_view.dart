@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:wifi_cctv/models/connection_error.dart';
 import 'package:wifi_cctv/viewmodels/viewer_viewmodel.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -177,12 +178,27 @@ class _ViewerViewState extends ConsumerState<ViewerView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 에러 메시지 표시
-          if (viewerState.errorMessage != null)
+          // 에러 표시 — ConnectionError sealed class + switch expression 패턴.
+          // camera_view.dart와 동일한 패턴. 뷰어 전용 에러(NegotiationTimeout)가 포함된다.
+          if (viewerState.error != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: Text(
-                viewerState.errorMessage!,
+                switch (viewerState.error!) {
+                  NetworkUnreachable() =>
+                    '서버에 연결할 수 없습니다.\nIP와 방화벽을 확인하세요.',
+                  ConnectionTimeout() =>
+                    '연결 시간이 초과됐습니다.\n서버 IP를 확인하세요.',
+                  NegotiationTimeout() =>
+                    '카메라 응답을 기다리다\n시간이 초과됐습니다 (30초).',
+                  RoomNotFound() => '존재하지 않는 방 번호입니다.',
+                  RoomFull() => '이미 뷰어가 참여 중입니다.',
+                  MediaPermissionDenied() => '카메라 또는 마이크\n권한이 필요합니다.',
+                  IceFailed() => 'P2P 연결에 실패했습니다.\n같은 WiFi인지 확인하세요.',
+                  PeerDisconnected() => '카메라가 연결을 종료했습니다.',
+                  ServerClosed() => '서버와의 연결이 끊어졌습니다.',
+                  UnknownConnectionError(:final message) => '오류: $message',
+                },
                 style: const TextStyle(color: Colors.redAccent, fontSize: 13),
                 textAlign: TextAlign.center,
               ),
